@@ -13,6 +13,16 @@ terraform {
   }
 }
 
+import {
+  to = module.ecr.aws_ecr_repository.fortune_api
+  id = "${var.project_name}-api"
+}
+
+import {
+  to = module.ecr.aws_ecr_repository.fortune_app
+  id = "${var.project_name}-app"
+}
+
 module "ecr" {
   source = "../../modules/ecr"
 
