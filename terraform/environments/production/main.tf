@@ -4,7 +4,8 @@ provider "aws" {
 
 terraform {
   backend "s3" {
-    bucket         = "fortune-teller-terraform-state"  # 使用你实际创建的存储桶名称
+    # bucket 名通过 CI/CD 的 -backend-config="bucket=..." 动态传入
+    # 本地调试: terraform init -backend-config="bucket=fortune-teller-terraform-state-<account_id>"
     key            = "production/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "fortune-teller-terraform-lock"

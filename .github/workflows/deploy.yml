@@ -27,26 +27,33 @@ jobs:
 
       - name: Bootstrap Terraform Backend (S3 + DynamoDB)
         run: |
-          # Create S3 state bucket if it doesn't exist
-          if ! aws s3api head-bucket --bucket fortune-teller-terraform-state 2>/dev/null; then
+          # 用 Account ID 构造全球唯一的 bucket 名
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          TF_STATE_BUCKET="fortune-teller-terraform-state-${ACCOUNT_ID}"
+          echo "TF_STATE_BUCKET=${TF_STATE_BUCKET}" >> $GITHUB_ENV
+          echo "Using state bucket: ${TF_STATE_BUCKET}"
+
+          # 检查 bucket 是否属于当前账号（区分"不存在"和"属于别人"）
+          HTTP_CODE=$(aws s3api head-bucket --bucket "${TF_STATE_BUCKET}" 2>&1 | grep -oP '(?<=\()\d{3}(?=\))' || echo "000")
+          if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "000" ]; then
             echo "Creating S3 state bucket..."
             aws s3api create-bucket \
-              --bucket fortune-teller-terraform-state \
+              --bucket "${TF_STATE_BUCKET}" \
               --region us-east-1
             aws s3api put-bucket-versioning \
-              --bucket fortune-teller-terraform-state \
+              --bucket "${TF_STATE_BUCKET}" \
               --versioning-configuration Status=Enabled
             aws s3api put-bucket-encryption \
-              --bucket fortune-teller-terraform-state \
+              --bucket "${TF_STATE_BUCKET}" \
               --server-side-encryption-configuration \
               '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
             aws s3api put-public-access-block \
-              --bucket fortune-teller-terraform-state \
+              --bucket "${TF_STATE_BUCKET}" \
               --public-access-block-configuration \
               "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
             echo "S3 bucket created."
           else
-            echo "S3 bucket already exists."
+            echo "S3 bucket already exists and belongs to this account."
           fi
 
           # Create DynamoDB lock table if it doesn't exist
@@ -102,7 +109,7 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform/environments/production
-        run: terraform init -input=false
+        run: terraform init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
 
       - name: Terraform Plan
         id: tfplan
