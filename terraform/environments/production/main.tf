@@ -6,10 +6,10 @@ terraform {
   backend "s3" {
     # bucket 名通过 CI/CD 的 -backend-config="bucket=..." 动态传入
     # 本地调试: terraform init -backend-config="bucket=fortune-teller-terraform-state-<account_id>"
-    key            = "production/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "fortune-teller-terraform-lock"
-    encrypt        = true
+    key          = "production/terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
+    encrypt      = true
   }
 }
 
