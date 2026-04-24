@@ -1,0 +1,22 @@
+[
+  {
+    "config": "hyde_rerank_topn7",
+    "n": 36,
+    "chain_score_mean": 0.7292,
+    "chain_score_min": 0.0,
+    "chain_score_max": 1.0,
+    "hop_ok_rate": 0.8611,
+    "full_ok_rate": 0.3333,
+    "cross_book_hit_rate": 0.3889,
+    "latency_p50": 30.36,
+    "latency_p90": 36.89,
+    "by_required_hops": {
+      "3": 0.7292
+    },
+    "by_book_pair": {
+      "三命通会×子平真诠": 0.75,
+      "三命通会×滴天髓": 0.7361,
+      "滴天髓×子平真诠": 0.7014
+    }
+  }
+]

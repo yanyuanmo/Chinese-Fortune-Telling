@@ -489,9 +489,23 @@ def build_retriever(cfg: dict, vectorstore):
         top_n            = int(retrieval_cfg.get("top_n", 7))
         hop              = int(retrieval_cfg.get("hop", 1))
         max_neighbors    = int(retrieval_cfg.get("max_neighbors", 30))
+        vector_filter_k  = int(retrieval_cfg.get("vector_filter_k", 0))
         reranker_model   = retrieval_cfg.get("rerank_model", "BAAI/bge-reranker-base")
 
         G, chunk_index = load_graph_and_index(graph_path, chunk_index_path)
+
+        # 可选 HyDE 种子：在 retrieval 中设 hyde: true 即可启用
+        hyde_llm_inst = None
+        if retrieval_cfg.get("hyde", False):
+            from langchain_openai import ChatOpenAI
+            kimi_key = os.environ.get("KIMI_API_KEY")
+            hyde_llm_inst = ChatOpenAI(
+                model       = retrieval_cfg.get("hyde_model", "moonshot-v1-8k"),
+                temperature = 0.3,
+                max_tokens  = 400,
+                base_url    = "https://api.moonshot.cn/v1",
+                api_key     = kimi_key,
+            )
 
         gr = GraphRetriever(
             vectorstore    = vectorstore,
@@ -502,6 +516,8 @@ def build_retriever(cfg: dict, vectorstore):
             top_n          = top_n,
             reranker_model = reranker_model,
             max_neighbors  = max_neighbors,
+            vector_filter_k = vector_filter_k,
+            hyde_llm       = hyde_llm_inst,
         )
         # 预热 BGE 精排器（首次从磁盘加载约 30-40s，之后驻留内存）
         print("    预加载 BGE 精排器（首次约 30~40s）…", flush=True)
@@ -558,10 +574,13 @@ def run_single(question: str, retriever, llm, qa_prompt) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def evaluate_with_ragas(records: list[dict], golden_answers: list[str]) -> dict:
+def evaluate_with_ragas(records: list[dict], golden_answers: list[str],
+                        eval_provider: str | None = None,
+                        eval_model: str | None = None) -> dict:
     """
     用 RAGAS 对一批结果评估，返回指标均值 dict。
-    RAGAS 评估 LLM 优先用 KIMI，其次 GROQ，若均不可用则回落到词重叠估算。
+    若指定 eval_provider/eval_model 则用该 LLM 评估；
+    否则优先 KIMI，其次 GROQ，若均不可用则回落到词重叠估算。
 
     NOTE: RAGAS v0.4.x requires metrics to be instances of ragas.metrics.base.Metric.
     The new ragas.metrics.collections classes inherit from SimpleBaseMetric (NOT Metric),
@@ -588,17 +607,27 @@ def evaluate_with_ragas(records: list[dict], golden_answers: list[str]) -> dict:
         from langchain_community.embeddings import HuggingFaceEmbeddings
         from openai import OpenAI as OpenAIClient
 
+        from langchain_openai import ChatOpenAI as ChatOpenAILC
+
         kimi_key = os.environ.get("KIMI_API_KEY")
         google_key = os.environ.get("GOOGLE_API_KEY")
         groq_key = os.environ.get("GROQ_API_KEY")
+        openai_key = os.environ.get("OPENAI_API_KEY")
 
-        if kimi_key:
-            # LangchainLLMWrapper + ChatOpenAI with explicit max_tokens avoids the
-            # llm_factory() internal 3072-token output cap that truncates RAGAS NLI JSON.
-            # moonshot-v1-32k supports up to 8192 output tokens; Chinese contexts
-            # (~3×1000 chars ≈ 4500 tokens) leave enough room for the full JSON response.
+        # ── 指定 eval provider 时优先使用 ─────────────────────────────
+        if eval_provider == "openai" and openai_key:
+            _model = eval_model or "gpt-4o"
+            print(f"  [RAGAS] Using OpenAI ({_model}) for evaluation")
+            eval_llm = LangchainLLMWrapper(
+                ChatOpenAILC(
+                    model=_model,
+                    max_tokens=8192,
+                    temperature=0,
+                    api_key=openai_key,
+                )
+            )
+        elif eval_provider == "kimi" or (eval_provider is None and kimi_key):
             print("  [RAGAS] Using Kimi (moonshot-v1-32k, max_tokens=8192) for evaluation")
-            from langchain_openai import ChatOpenAI as ChatOpenAILC
             eval_llm = LangchainLLMWrapper(
                 ChatOpenAILC(
                     model="moonshot-v1-32k",
@@ -629,8 +658,11 @@ def evaluate_with_ragas(records: list[dict], golden_answers: list[str]) -> dict:
             return _simple_overlap_scores(records, golden_answers)
 
         # Local HuggingFace embeddings — no API key required.
-        # evaluate() wraps LangchainEmbeddings automatically via LangchainEmbeddingsWrapper.
-        ragas_emb = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        # Use Chinese embedding for answer_relevancy (measures question↔question similarity).
+        ragas_emb = HuggingFaceEmbeddings(
+            model_name="BAAI/bge-small-zh-v1.5",
+            encode_kwargs={"normalize_embeddings": True},
+        )
 
         # Pre-set llm on each singleton so evaluate() doesn't fall back to OpenAI default.
         faithfulness.llm = eval_llm
@@ -705,10 +737,17 @@ def _simple_overlap_scores(records: list[dict], golden_answers: list[str]) -> di
 # ---------------------------------------------------------------------------
 
 
-def run_benchmark(cfg_path: str, dataset: list[dict], output_dir: Path) -> dict:
+def run_benchmark(cfg_path: str, dataset: list[dict], output_dir: Path,
+                   eval_provider: str | None = None,
+                   eval_model: str | None = None) -> dict:
     """跑单个配置的 benchmark，返回汇总指标。"""
     with open(cfg_path, encoding="utf-8") as f:
         cfg: dict = yaml.safe_load(f)
+    # Pass eval settings through cfg dict for evaluate_with_ragas
+    if eval_provider:
+        cfg["_eval_provider"] = eval_provider
+    if eval_model:
+        cfg["_eval_model"] = eval_model
 
     cfg_name = Path(cfg_path).stem
     print(f"\n{'='*60}")
@@ -731,7 +770,19 @@ def run_benchmark(cfg_path: str, dataset: list[dict], output_dir: Path) -> dict:
     _cu._embedding_function = None
 
     from chroma_utils import get_vectorstore
-    from fortune_prompts import bench_qa_prompt
+    from fortune_prompts import bench_qa_prompt, bench_qa_prompt_concise, bench_qa_prompt_balanced
+
+    # 根据 YAML 中的 prompt_style 选择 prompt
+    prompt_style = cfg.get("prompt_style", "default")
+    if prompt_style == "concise":
+        qa_prompt = bench_qa_prompt_concise
+        print(f"  Prompt: concise (answer_relevancy optimized)")
+    elif prompt_style == "balanced":
+        qa_prompt = bench_qa_prompt_balanced
+        print(f"  Prompt: balanced (relevancy + faithfulness)")
+    else:
+        qa_prompt = bench_qa_prompt
+        print(f"  Prompt: default")
 
     gen_cfg = cfg.get("generation", {})
     print(f"  LLM: {gen_cfg.get('provider', 'kimi')} / {gen_cfg.get('model', 'moonshot-v1-32k')}")
@@ -748,7 +799,7 @@ def run_benchmark(cfg_path: str, dataset: list[dict], output_dir: Path) -> dict:
     for i, item in enumerate(dataset, 1):
         print(f"  [{i}/{len(dataset)}] Q: {item['question'][:60]}...")
         try:
-            result = run_single(item["question"], retriever, llm, bench_qa_prompt)
+            result = run_single(item["question"], retriever, llm, qa_prompt)
             records.append(result)
             golden_answers.append(item["golden_answer"])
             latencies.append(result["latency_total"])
@@ -762,7 +813,9 @@ def run_benchmark(cfg_path: str, dataset: list[dict], output_dir: Path) -> dict:
 
     # 评估
     print("\n  Running RAGAS evaluation...")
-    ragas_scores = evaluate_with_ragas(records, golden_answers)
+    ragas_scores = evaluate_with_ragas(records, golden_answers,
+                                         eval_provider=cfg.get("_eval_provider"),
+                                         eval_model=cfg.get("_eval_model"))
 
     # 延迟统计
     latencies_sorted = sorted(latencies)
@@ -815,13 +868,39 @@ def print_comparison_table(summaries: list[dict[str, Any]]) -> None:
 
 
 def main():
+    # Force UTF-8 line-buffered output for Windows (avoids garbled Chinese in pipes)
+    import io
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", line_buffering=True)
+
     parser = argparse.ArgumentParser(description="RAG Benchmark Runner")
     parser.add_argument("--config", help="Single config YAML file")
     parser.add_argument("--configs", nargs="+", help="Multiple config YAML files")
     parser.add_argument("--dataset", default="benchmarks/qa_dataset.json", help="QA dataset JSON file")
     parser.add_argument("--output-dir", default="benchmarks/results", help="Directory to save results")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit number of QA samples (for quick runs)")
+    parser.add_argument("--eval-provider", default=None, help="Eval LLM provider (openai|kimi|groq)")
+    parser.add_argument("--eval-model", default=None, help="Eval LLM model name")
+    parser.add_argument("--log", default=None, metavar="FILE",
+                        help="Also write all output to FILE (UTF-8). Replaces Tee-Object.")
     args = parser.parse_args()
+
+    # --log: tee stdout to a UTF-8 file (no need for PowerShell Tee-Object)
+    if args.log:
+        _log_f = open(args.log, "w", encoding="utf-8")
+        class _Tee:
+            def __init__(self, *streams):
+                self._streams = streams
+            def write(self, data):
+                for s in self._streams:
+                    s.write(data)
+                    s.flush()
+            def flush(self):
+                for s in self._streams:
+                    s.flush()
+        sys.stdout = _Tee(sys.stdout, _log_f)
+        sys.stderr = _Tee(sys.stderr, _log_f)
 
     cfg_paths: list[str] = []
     if args.configs:
@@ -853,7 +932,9 @@ def main():
     output_dir = Path(args.output_dir)
     summaries: list[dict] = []
     for cfg_path in cfg_paths:
-        summary = run_benchmark(cfg_path, dataset, output_dir)
+        summary = run_benchmark(cfg_path, dataset, output_dir,
+                                eval_provider=args.eval_provider,
+                                eval_model=args.eval_model)
         if summary:
             summaries.append(summary)
 

@@ -1,0 +1,25 @@
+# configs/rag/v10/graph_rag_v7_vf50_concise.yaml
+# v10: v7_vf50 + concise prompt (answer_relevancy optimization)
+# Same retrieval as v7_vf50, only changes generation prompt
+
+chroma_dir:      ./chroma_db_bge
+embedding_model: BAAI/bge-small-zh-v1.5
+
+graph_path:        ./data/knowledge_graph.pkl
+chunk_index_path:  ./data/chunk_index.json
+
+prompt_style: concise
+
+retrieval:
+  type:          graph_rag
+  k:             10
+  hop:           1
+  top_n:         7
+  max_neighbors: 30
+  vector_filter_k: 50
+  rerank_model:  BAAI/bge-reranker-base
+
+generation:
+  provider: kimi
+  model: moonshot-v1-32k
+  temperature: 0.7

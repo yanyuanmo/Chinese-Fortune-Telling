@@ -1,0 +1,19 @@
+# HyDE + BGE rerank with bge-base-zh-v1.5 embedding (768-dim)
+# Experiment: Does better embedding help HyDE pipeline on multihop?
+# Baseline: v5/hyde_rerank_topn7.yaml (bge-small-zh, 384-dim)
+
+chroma_dir:      ./chroma_db_bge_base
+embedding_model: BAAI/bge-base-zh-v1.5
+
+retrieval:
+  type: hyde_rerank
+  k: 15
+  top_n: 7
+  num_hypothetical: 1
+  hyde_model: moonshot-v1-8k
+  rerank_model: BAAI/bge-reranker-base
+
+generation:
+  provider: kimi
+  model: moonshot-v1-32k
+  temperature: 0.7

@@ -1,7 +1,7 @@
 {
   "nodes": 668,
-  "edges": 15698,
-  "avg_degree": 47.0,
+  "edges": 5255,
+  "avg_degree": 15.73,
   "by_book": {
     "三命通会": 419,
     "滴天髓": 154,
@@ -30,8 +30,8 @@
     "羊刃": 57
   },
   "edge_weight_dist": {
-    "min": 2,
-    "max": 9,
-    "mean": 2.48
+    "min": 3.0052,
+    "max": 16.5328,
+    "mean": 5.24
   }
 }

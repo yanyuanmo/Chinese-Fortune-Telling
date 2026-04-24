@@ -1,0 +1,24 @@
+[
+  {
+    "config": "graph_rag_v7_vf50",
+    "num_samples": 22,
+    "latency_p50": 15.637,
+    "latency_p95": 18.283,
+    "latency_mean": 15.088,
+    "faithfulness": 0.8975,
+    "answer_relevancy": 0.5073,
+    "context_recall": 0.7939,
+    "context_precision": 0.8191
+  },
+  {
+    "config": "graph_rag_v8_bge_base_k15",
+    "num_samples": 22,
+    "latency_p50": 40.27,
+    "latency_p95": 50.716,
+    "latency_mean": 40.047,
+    "faithfulness": NaN,
+    "answer_relevancy": NaN,
+    "context_recall": NaN,
+    "context_precision": NaN
+  }
+]

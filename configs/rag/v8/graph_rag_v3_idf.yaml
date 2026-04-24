@@ -1,0 +1,32 @@
+# configs/rag/v8/graph_rag_v3_idf.yaml
+# Graph RAG v3: IDF-weighted edges + degree pruning + weighted BFS + hop=2
+#
+# 改进点（vs v2）:
+#   1. 边权重从术语计数改为 IDF 加权（稀有术语权重高）
+#   2. 每节点 max_degree=15 度限制，图更稀疏有区分度
+#   3. BFS 按权重降序扩展，优先走强边
+#   4. hop=2（IDF+剪枝后不会爆炸）
+#
+# 基线对比（v2 multihop）:
+#   chain_score_mean: 0.646
+#   full_ok_rate:     0.19
+#   cross_book_hit:   0.89
+
+chroma_dir:      ./chroma_db_bge
+embedding_model: BAAI/bge-small-zh-v1.5
+
+graph_path:        ./data/knowledge_graph.pkl
+chunk_index_path:  ./data/chunk_index.json
+
+retrieval:
+  type:          graph_rag
+  k:             10          # 向量宽召回数量（seed）
+  hop:           2           # 2 跳 BFS（IDF+度限制后安全）
+  top_n:         7           # 最终返回文档数（BGE 精排后）
+  max_neighbors: 30          # 每个 seed 最多扩展的邻居数
+  rerank_model:  BAAI/bge-reranker-base
+
+generation:
+  provider: kimi
+  model: moonshot-v1-32k
+  temperature: 0.7

@@ -1,0 +1,42 @@
+[
+  {
+    "config": "graph_rag_v3_idf_hop1",
+    "n": 36,
+    "chain_score_mean": 0.6412,
+    "chain_score_min": 0.0,
+    "chain_score_max": 1.0,
+    "hop_ok_rate": 0.7778,
+    "full_ok_rate": 0.1667,
+    "cross_book_hit_rate": 0.8889,
+    "latency_p50": 58.49,
+    "latency_p90": 77.76,
+    "by_required_hops": {
+      "3": 0.6412
+    },
+    "by_book_pair": {
+      "三命通会×子平真诠": 0.7361,
+      "三命通会×滴天髓": 0.5764,
+      "滴天髓×子平真诠": 0.6111
+    }
+  },
+  {
+    "config": "graph_rag_v3_idf",
+    "n": 36,
+    "chain_score_mean": 0.6412,
+    "chain_score_min": 0.0,
+    "chain_score_max": 1.0,
+    "hop_ok_rate": 0.75,
+    "full_ok_rate": 0.1111,
+    "cross_book_hit_rate": 0.8333,
+    "latency_p50": 61.35,
+    "latency_p90": 73.73,
+    "by_required_hops": {
+      "3": 0.6412
+    },
+    "by_book_pair": {
+      "三命通会×子平真诠": 0.6945,
+      "三命通会×滴天髓": 0.6389,
+      "滴天髓×子平真诠": 0.5903
+    }
+  }
+]
