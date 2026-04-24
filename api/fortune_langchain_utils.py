@@ -106,7 +106,7 @@ def get_fortune_chain(query_type: str = "general", model: str = "moonshot-v1-8k"
 
     # History-aware retriever: condenses chat history + question into a standalone query,
     # then feeds that into our HyDE+Rerank retriever
-    hyde_rerank_retriever = _build_hyde_rerank_retriever(llm, hyde_k=8, top_n=5)
+    hyde_rerank_retriever = _build_hyde_rerank_retriever(llm, hyde_k=15, top_n=7)
     history_aware_retriever = create_history_aware_retriever(
         llm,
         hyde_rerank_retriever,

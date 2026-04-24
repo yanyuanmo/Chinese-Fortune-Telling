@@ -68,10 +68,34 @@ load_dotenv(override=True)
 
 # ── 超参 ──────────────────────────────────────────────────────────────────
 
-EVAL_MODEL        = "moonshot-v1-32k"
-GEN_MODEL         = "moonshot-v1-32k"    # 生成 RAG 答案用
+EVAL_MODEL        = "moonshot-v1-32k"    # 会被 CLI --eval-model 覆盖
+GEN_MODEL         = "moonshot-v1-32k"    # 会被 CLI --gen-model / yaml 覆盖
 MAX_WORKERS       = 3
 DEFAULT_OUTPUT    = "benchmarks/results/multihop"
+
+# ── Provider 路由 ──────────────────────────────────────────────────────────
+
+PROVIDER_CONFIG = {
+    "kimi":    {"env_key": "KIMI_API_KEY",    "base_url": "https://api.moonshot.cn/v1"},
+    "openai":  {"env_key": "OPENAI_API_KEY",  "base_url": None},  # 默认 api.openai.com
+    "deepseek":{"env_key": "DEEPSEEK_API_KEY", "base_url": "https://api.deepseek.com"},
+    "groq":    {"env_key": "GROQ_API_KEY",    "base_url": "https://api.groq.com/openai/v1"},
+}
+
+
+def make_client(provider: str) -> "OpenAI":
+    """根据 provider 名称构造 OpenAI-compatible client。"""
+    from openai import OpenAI
+    info = PROVIDER_CONFIG.get(provider)
+    if not info:
+        raise ValueError(f"Unknown provider '{provider}'. Choose from: {list(PROVIDER_CONFIG)}")
+    api_key = os.environ.get(info["env_key"])
+    if not api_key:
+        raise EnvironmentError(f"{info['env_key']} not set in .env (required for provider={provider})")
+    kwargs = {"api_key": api_key, "timeout": 120.0}
+    if info["base_url"]:
+        kwargs["base_url"] = info["base_url"]
+    return OpenAI(**kwargs)
 
 # ── 评估 Prompt ───────────────────────────────────────────────────────────
 
@@ -99,19 +123,43 @@ CHAIN_EVAL_PROMPT = """\
 
 RAG_ANSWER_PROMPT = """\
 你是中国传统命理学研究者，精通《三命通会》《子平真诠》《滴天髓》等古典命理文献。
-请严格依据下方提供的古籍原文，用中文直接、准确地回答用户问题。
+请严格依据下方提供的古籍原文，用中文回答用户问题。
 
-作答要求：
-1. 答案必须有原文依据
-2. 优先引用具体术语、格局名称
-3. 回答直接针对问题，不要讲废话
-4. 必须连贯推理，不要只抄录原文
+作答要求（务必逐步推理）：
+1. 先分别指出各书中与问题相关的关键原文片段
+2. 逐步推导：从每本书的论述出发，说明它们之间的逻辑关联
+3. 综合多书观点，得出最终结论
+4. 关键术语保留原文用语，用现代汉语阐释
+5. 不得编造原文之外的内容
 
 参考古籍原文：
 {context}
 
 用户问题：{question}
+
+请按"各书要点 → 逐步推理 → 结论"的结构作答：
 """
+
+# ── 精简版多跳 prompt（从 fortune_prompts.py 引入）──────────────────────────
+# 懒加载以避免循环依赖
+_RAG_ANSWER_PROMPT_CONCISE = None
+_RAG_ANSWER_PROMPT_BALANCED = None
+
+def _get_concise_prompt():
+    global _RAG_ANSWER_PROMPT_CONCISE
+    if _RAG_ANSWER_PROMPT_CONCISE is None:
+        sys.path.insert(0, str(Path(__file__).parent.parent / "api"))
+        from fortune_prompts import RAG_ANSWER_PROMPT_CONCISE
+        _RAG_ANSWER_PROMPT_CONCISE = RAG_ANSWER_PROMPT_CONCISE
+    return _RAG_ANSWER_PROMPT_CONCISE
+
+def _get_balanced_prompt():
+    global _RAG_ANSWER_PROMPT_BALANCED
+    if _RAG_ANSWER_PROMPT_BALANCED is None:
+        sys.path.insert(0, str(Path(__file__).parent.parent / "api"))
+        from fortune_prompts import RAG_ANSWER_PROMPT_BALANCED
+        _RAG_ANSWER_PROMPT_BALANCED = RAG_ANSWER_PROMPT_BALANCED
+    return _RAG_ANSWER_PROMPT_BALANCED
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -168,9 +216,12 @@ def build_retriever_from_config(cfg_path: str):
 def retrieve_and_answer(
     question: str,
     retriever,
-    kimi_client,
+    gen_client,
+    gen_model: str = None,
+    prompt_style: str = "default",
 ) -> tuple[str, list[dict]]:
-    """用检索器拉上下文，调 Kimi 生成答案。返回 (answer, docs)"""
+    """用检索器拉上下文，调 LLM 生成答案。返回 (answer, docs)"""
+    gen_model = gen_model or GEN_MODEL
     docs = []
     for attempt in range(3):
         try:
@@ -197,19 +248,32 @@ def retrieve_and_answer(
         })
 
     context = "\n\n---\n\n".join(context_parts)
-    prompt = RAG_ANSWER_PROMPT.format(context=context, question=question)
 
-    try:
-        resp = kimi_client.chat.completions.create(
-            model=GEN_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=600,
-            timeout=60,
-        )
-        answer = resp.choices[0].message.content.strip()
-    except Exception as e:
-        answer = f"[api_error: {e}]"
+    if prompt_style == "concise":
+        prompt_template = _get_concise_prompt()
+    elif prompt_style == "balanced":
+        prompt_template = _get_balanced_prompt()
+    else:
+        prompt_template = RAG_ANSWER_PROMPT
+    prompt = prompt_template.format(context=context, question=question)
+
+    answer = ""
+    for _attempt in range(3):
+        try:
+            resp = gen_client.chat.completions.create(
+                model=gen_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=800,
+                timeout=90,
+            )
+            answer = resp.choices[0].message.content.strip()
+            break
+        except Exception as e:
+            if _attempt < 2 and ("429" in str(e) or "overloaded" in str(e)):
+                time.sleep(5 * (_attempt + 1))
+                continue
+            answer = f"[api_error: {e}]"
     return answer, doc_metas
 
 
@@ -221,10 +285,12 @@ def evaluate_chain(
     question: str,
     reasoning_chain: list[str],
     answer: str,
-    kimi_client,
+    eval_client,
+    eval_model: str = None,
     max_retries: int = 2,
 ) -> dict:
     """对单道题打 chain_score。返回 {step_scores, chain_score, comment}"""
+    eval_model = eval_model or EVAL_MODEL
     chain_str = "\n".join(f"{i+1}. {step}" for i, step in enumerate(reasoning_chain))
     prompt = CHAIN_EVAL_PROMPT.format(
         question=question,
@@ -233,8 +299,8 @@ def evaluate_chain(
     )
     for attempt in range(max_retries + 1):
         try:
-            resp = kimi_client.chat.completions.create(
-                model=EVAL_MODEL,
+            resp = eval_client.chat.completions.create(
+                model=eval_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=300,
@@ -249,6 +315,8 @@ def evaluate_chain(
             # 校验
             if not scores or not all(s in (0, 1, 0.5) for s in scores):
                 raise ValueError(f"Bad step_scores: {scores}")
+            # LLM 可能返回多于 reasoning_chain 长度的评分，截断以防 chain_score > 1
+            scores = scores[:len(reasoning_chain)]
             chain_score = sum(scores) / len(reasoning_chain)
             return {
                 "step_scores":  scores,
@@ -268,8 +336,12 @@ def evaluate_chain(
 def run_single_item(
     item: dict,
     retriever,
-    kimi_client,
+    gen_client,
+    eval_client,
     cfg_name: str,
+    gen_model: str = None,
+    eval_model: str = None,
+    prompt_style: str = "default",
 ) -> dict:
     """执行单题：检索 + 生成 + chain_score 评估"""
     t0 = time.perf_counter()
@@ -279,7 +351,7 @@ def run_single_item(
     source_books    = {item["metadata"]["book1"], item["metadata"]["book2"]}
 
     try:
-        answer, doc_metas = retrieve_and_answer(question, retriever, kimi_client)
+        answer, doc_metas = retrieve_and_answer(question, retriever, gen_client, gen_model, prompt_style)
     except Exception as e:
         answer = f"[retrieve_fatal: {e}]"
         doc_metas = []
@@ -290,7 +362,7 @@ def run_single_item(
     cross_hit = len(source_books & retrieved_books) == len(source_books)
 
     # chain-score
-    eval_result = evaluate_chain(question, reasoning_chain, answer, kimi_client)
+    eval_result = evaluate_chain(question, reasoning_chain, answer, eval_client, eval_model)
 
     total_time = time.perf_counter() - t0
     return {
@@ -482,10 +554,11 @@ def write_report(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    # Force UTF-8 unbuffered output so Chinese chars don't crash file redirects
+    # Force UTF-8 line-buffered output for Windows (avoids garbled Chinese in pipes)
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", line_buffering=True)
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", line_buffering=True)
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", line_buffering=True)
 
     parser = argparse.ArgumentParser(description="Multi-hop RAG Benchmark")
     parser.add_argument(
@@ -508,18 +581,60 @@ def main():
         "--no-parallel", action="store_true",
         help="Disable concurrent evaluation (easier debugging)",
     )
+    parser.add_argument(
+        "--eval-provider", default="openai",
+        help="Provider for evaluation LLM (openai/kimi/deepseek/groq). Default: openai",
+    )
+    parser.add_argument(
+        "--eval-model", default="gpt-4o",
+        help="Model name for evaluation. Default: gpt-4o",
+    )
+    parser.add_argument(
+        "--gen-provider", default=None,
+        help="Provider for generation LLM. Default: from yaml config or kimi",
+    )
+    parser.add_argument(
+        "--gen-model", default=None,
+        help="Model name for generation. Default: from yaml config or moonshot-v1-32k",
+    )
+    parser.add_argument(
+        "--log", default=None, metavar="FILE",
+        help="Also write all output to FILE (UTF-8). Replaces Tee-Object.",
+    )
     args = parser.parse_args()
+
+    # --log: tee stdout to a UTF-8 file (no need for PowerShell Tee-Object)
+    if args.log:
+        _log_f = open(args.log, "w", encoding="utf-8")
+        class _Tee:
+            def __init__(self, *streams):
+                self._streams = streams
+            def write(self, data):
+                for s in self._streams:
+                    s.write(data)
+                    s.flush()
+            def flush(self):
+                for s in self._streams:
+                    s.flush()
+        sys.stdout = _Tee(sys.stdout, _log_f)
+        sys.stderr = _Tee(sys.stderr, _log_f)
 
     root = Path(__file__).parent.parent
     os.chdir(root)
 
-    # ── API ────────────────────────────────────────────────────────────────
-    from openai import OpenAI
+    # ── API clients ────────────────────────────────────────────────────────
+    global EVAL_MODEL, GEN_MODEL
 
-    api_key = os.environ.get("KIMI_API_KEY")
-    if not api_key:
-        raise EnvironmentError("KIMI_API_KEY not set in .env")
-    kimi = OpenAI(api_key=api_key, base_url="https://api.moonshot.cn/v1", timeout=90.0)
+    # Eval client (默认 GPT-4o，避免自评偏差)
+    EVAL_MODEL = args.eval_model
+    eval_client = make_client(args.eval_provider)
+    print(f"  Eval  LLM: {args.eval_provider}/{EVAL_MODEL}")
+
+    # Gen client (默认从 yaml 读取，CLI 可覆盖)
+    gen_provider = args.gen_provider or "kimi"
+    GEN_MODEL    = args.gen_model or "moonshot-v1-32k"
+    gen_client   = make_client(gen_provider)
+    print(f"  Gen   LLM: {gen_provider}/{GEN_MODEL}")
 
     # ── 加载数据集 ─────────────────────────────────────────────────────────
     dataset_path = args.dataset
@@ -559,6 +674,24 @@ def main():
             print(f"  ERROR building retriever: {exc}")
             _tb.print_exc()
             continue
+
+        # 如果 CLI 没有指定 gen-provider/gen-model, 尝试从 yaml 中读取
+        cfg_gen      = cfg.get("generation", {})
+        cur_gen_prov = args.gen_provider or cfg_gen.get("provider", "kimi")
+        cur_gen_mod  = args.gen_model    or cfg_gen.get("model", "moonshot-v1-32k")
+        # 如果本配置的 gen_provider 和全局不同, 构建新 client
+        if cur_gen_prov != gen_provider:
+            cur_gen_client = make_client(cur_gen_prov)
+            print(f"  (Config overrides gen → {cur_gen_prov}/{cur_gen_mod})")
+        else:
+            cur_gen_client = gen_client
+            cur_gen_mod    = cur_gen_mod if cur_gen_mod != GEN_MODEL else GEN_MODEL
+
+        # prompt_style 从 YAML 配置中读取
+        prompt_style = cfg.get("prompt_style", "default")
+        if prompt_style != "default":
+            print(f"  Prompt: {prompt_style}")
+
         results: list[dict] = []
 
         workers = 1 if args.no_parallel else MAX_WORKERS
@@ -571,7 +704,7 @@ def main():
             _orig_sigint = _signal.signal(_signal.SIGINT, _signal.SIG_IGN)
             for i, item in enumerate(dataset, 1):
                 try:
-                    r = run_single_item(item, retriever, kimi, cfg_name)
+                    r = run_single_item(item, retriever, cur_gen_client, eval_client, cfg_name, cur_gen_mod, EVAL_MODEL, prompt_style)
                 except (Exception, KeyboardInterrupt) as exc:
                     import traceback as _tb
                     print(f"\n  ERROR on item {i}: {type(exc).__name__}: {exc}", flush=True)
@@ -609,7 +742,7 @@ def main():
 
             def _run(item):
                 try:
-                    r = run_single_item(item, retriever, kimi_client, cfg_name)
+                    r = run_single_item(item, retriever, cur_gen_client, eval_client, cfg_name, cur_gen_mod, EVAL_MODEL, prompt_style)
                 except Exception as exc:
                     r = {
                         "id":             item.get("id", ""),

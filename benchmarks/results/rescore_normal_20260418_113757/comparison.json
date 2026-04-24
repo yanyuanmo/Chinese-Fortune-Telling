@@ -1,0 +1,79 @@
+[
+  {
+    "config": "hybrid",
+    "kimi_faithfulness": 0.9493,
+    "kimi_relevancy": 0.5604,
+    "kimi_recall": 0.8769,
+    "kimi_precision": 0.9638,
+    "gpt4o_faithfulness": 0.7462,
+    "gpt4o_relevancy": 0.4648,
+    "gpt4o_recall": 0.8239,
+    "gpt4o_precision": 0.8584
+  },
+  {
+    "config": "hybrid_rerank_bge",
+    "kimi_faithfulness": 0.9639,
+    "kimi_relevancy": 0.5553,
+    "kimi_recall": 0.8419,
+    "kimi_precision": 0.9924,
+    "gpt4o_faithfulness": 0.7585,
+    "gpt4o_relevancy": 0.4857,
+    "gpt4o_recall": 0.7238,
+    "gpt4o_precision": 0.8902
+  },
+  {
+    "config": "prop_vector",
+    "kimi_faithfulness": 0.9095,
+    "kimi_relevancy": 0.6111,
+    "kimi_recall": 0.7867,
+    "kimi_precision": 0.878,
+    "gpt4o_faithfulness": 0.508,
+    "gpt4o_relevancy": 0.4952,
+    "gpt4o_recall": 0.5714,
+    "gpt4o_precision": 0.6606
+  },
+  {
+    "config": "prop_hybrid",
+    "kimi_faithfulness": 0.8252,
+    "kimi_relevancy": 0.6003,
+    "kimi_recall": 0.7936,
+    "kimi_precision": 0.8397,
+    "gpt4o_faithfulness": 0.4188,
+    "gpt4o_relevancy": 0.442,
+    "gpt4o_recall": 0.4736,
+    "gpt4o_precision": 0.4169
+  },
+  {
+    "config": "graph_rag_v3_cot",
+    "kimi_faithfulness": 0.982,
+    "kimi_relevancy": 0.5878,
+    "kimi_recall": 0.8968,
+    "kimi_precision": 0.9561,
+    "gpt4o_faithfulness": 0.8591,
+    "gpt4o_relevancy": 0.4806,
+    "gpt4o_recall": 0.7863,
+    "gpt4o_precision": 0.8597
+  },
+  {
+    "config": "graph_rag_v5_hyde",
+    "kimi_faithfulness": 0.9713,
+    "kimi_relevancy": 0.5952,
+    "kimi_recall": 0.9034,
+    "kimi_precision": 0.952,
+    "gpt4o_faithfulness": 0.8437,
+    "gpt4o_relevancy": 0.4465,
+    "gpt4o_recall": 0.7694,
+    "gpt4o_precision": 0.8139
+  },
+  {
+    "config": "graph_rag_v8_bge_k15",
+    "kimi_faithfulness": NaN,
+    "kimi_relevancy": NaN,
+    "kimi_recall": NaN,
+    "kimi_precision": NaN,
+    "gpt4o_faithfulness": 0.854,
+    "gpt4o_relevancy": 0.5293,
+    "gpt4o_recall": 0.8419,
+    "gpt4o_precision": 0.8759
+  }
+]

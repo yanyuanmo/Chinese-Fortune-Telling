@@ -1,0 +1,47 @@
+[
+  {
+    "config": "hyde_old_feb",
+    "kimi_eval": 0.6505,
+    "gpt4o_eval": 0.5556,
+    "delta": -0.0949,
+    "hop_ok": 0.4722,
+    "full_ok": 0.3056,
+    "cross_hit": 0.4444
+  },
+  {
+    "config": "v3_idf",
+    "kimi_eval": 0.6412,
+    "gpt4o_eval": 0.5463,
+    "delta": -0.0949,
+    "hop_ok": 0.5833,
+    "full_ok": 0.25,
+    "cross_hit": 0.8333
+  },
+  {
+    "config": "hybrid_feb",
+    "kimi_eval": 0.6204,
+    "gpt4o_eval": 0.4583,
+    "delta": -0.162,
+    "hop_ok": 0.4444,
+    "full_ok": 0.1111,
+    "cross_hit": 1.0
+  },
+  {
+    "config": "graph_rag_v1",
+    "kimi_eval": 0.6204,
+    "gpt4o_eval": 0.4352,
+    "delta": -0.1852,
+    "hop_ok": 0.4722,
+    "full_ok": 0.1389,
+    "cross_hit": 0.6944
+  },
+  {
+    "config": "v6_mn15",
+    "kimi_eval": 0.1667,
+    "gpt4o_eval": 0.2083,
+    "delta": 0.0417,
+    "hop_ok": 0.2222,
+    "full_ok": 0.0556,
+    "cross_hit": 0.9167
+  }
+]

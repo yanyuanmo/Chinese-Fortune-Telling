@@ -1,0 +1,24 @@
+# configs/rag/v10/graph_rag_v8_bge_k15_balanced.yaml
+# v10b: v8_bge_base_k15 + balanced prompt (relevancy + faithfulness)
+# Same retrieval as v8_bge_base_k15, only changes generation prompt
+
+chroma_dir:      ./chroma_db_bge_base
+embedding_model: BAAI/bge-base-zh-v1.5
+
+graph_path:        ./data/knowledge_graph.pkl
+chunk_index_path:  ./data/chunk_index.json
+
+prompt_style: balanced
+
+retrieval:
+  type:          graph_rag
+  k:             15
+  hop:           1
+  top_n:         7
+  max_neighbors: 30
+  rerank_model:  BAAI/bge-reranker-base
+
+generation:
+  provider: kimi
+  model: moonshot-v1-32k
+  temperature: 0.7

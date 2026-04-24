@@ -1,0 +1,24 @@
+# configs/rag/v8/graph_rag_v7_vf100.yaml
+# Graph RAG v7: v3 CoT + vector_filter_k=100
+# Only keep graph neighbors that also appear in top-100 vector results
+# More permissive than vf50: allows more neighbors through
+
+chroma_dir:      ./chroma_db_bge
+embedding_model: BAAI/bge-small-zh-v1.5
+
+graph_path:        ./data/knowledge_graph.pkl
+chunk_index_path:  ./data/chunk_index.json
+
+retrieval:
+  type:          graph_rag
+  k:             10
+  hop:           1
+  top_n:         7
+  max_neighbors: 30
+  vector_filter_k: 100
+  rerank_model:  BAAI/bge-reranker-base
+
+generation:
+  provider: kimi
+  model: moonshot-v1-32k
+  temperature: 0.7

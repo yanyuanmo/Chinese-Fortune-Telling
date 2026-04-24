@@ -1,0 +1,24 @@
+[
+  {
+    "config": "graph_rag_v3_cot_only",
+    "num_samples": 22,
+    "latency_p50": 34.334,
+    "latency_p95": 39.851,
+    "latency_mean": 33.059,
+    "faithfulness": 0.982,
+    "answer_relevancy": 0.5878,
+    "context_recall": 0.8968,
+    "context_precision": 0.9561
+  },
+  {
+    "config": "graph_rag_v5_hyde_cot",
+    "num_samples": 22,
+    "latency_p50": 36.884,
+    "latency_p95": 43.718,
+    "latency_mean": 37.008,
+    "faithfulness": 0.9713,
+    "answer_relevancy": 0.5952,
+    "context_recall": 0.9034,
+    "context_precision": 0.952
+  }
+]

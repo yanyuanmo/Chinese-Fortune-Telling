@@ -1,0 +1,21 @@
+# Graph RAG v3 CoT with bge-base-zh-v1.5 + k=15 seeds
+# Experiment: More seeds to compensate for different embedding space
+
+chroma_dir:      ./chroma_db_bge_base
+embedding_model: BAAI/bge-base-zh-v1.5
+
+graph_path:        ./data/knowledge_graph.pkl
+chunk_index_path:  ./data/chunk_index.json
+
+retrieval:
+  type:          graph_rag
+  k:             15
+  hop:           1
+  top_n:         7
+  max_neighbors: 30
+  rerank_model:  BAAI/bge-reranker-base
+
+generation:
+  provider: kimi
+  model: moonshot-v1-32k
+  temperature: 0.7

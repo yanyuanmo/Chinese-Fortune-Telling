@@ -1,0 +1,22 @@
+# configs/rag/v8/graph_rag_v3_cot_only.yaml
+# Graph RAG v3 + CoT: same retrieval as v3_idf_hop1, only CoT prompt change
+# For ablation: isolate CoT prompt effect from reranker upgrade
+
+chroma_dir:      ./chroma_db_bge
+embedding_model: BAAI/bge-small-zh-v1.5
+
+graph_path:        ./data/knowledge_graph.pkl
+chunk_index_path:  ./data/chunk_index.json
+
+retrieval:
+  type:          graph_rag
+  k:             10
+  hop:           1
+  top_n:         7
+  max_neighbors: 30
+  rerank_model:  BAAI/bge-reranker-base
+
+generation:
+  provider: kimi
+  model: moonshot-v1-32k
+  temperature: 0.7

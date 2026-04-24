@@ -62,6 +62,7 @@ def build_graph(
     embedding_model: str,
     min_weight: int,
     min_chunk_len: int,
+    max_degree: int = 0,
 ) -> tuple:
     """
     加载 chroma_db_bge → 提取桥接术语 → 构建 NetworkX 图。
@@ -108,6 +109,7 @@ def build_graph(
 
     # ── 构建图 ──────────────────────────────────────────────────────────────
     print("Building knowledge graph …", flush=True)
+    import math
     G = nx.Graph()
 
     # 添加节点
@@ -120,30 +122,67 @@ def build_graph(
         for term in set(info["bridge_terms"]):   # set 去重，避免同一术语多次出现
             term_to_chunks[term].append(cid)
 
-    # 枚举跨书边
-    edge_counter: Counter = Counter()
-    edge_terms:   dict[tuple, list] = defaultdict(list)
+    # ── IDF 权重：稀有术语贡献大，高频术语贡献小 ──────────────────────────
+    N = len(chunk_index)
+    term_idf: dict[str, float] = {}
+    for term, cids_list in term_to_chunks.items():
+        df = len(cids_list)
+        term_idf[term] = math.log(N / df) if df > 0 else 0.0
 
-    for term, cids in term_to_chunks.items():
+    print(f"  IDF weights (sample): ", flush=True)
+    for term in sorted(term_idf, key=term_idf.get, reverse=True)[:5]:
+        print(f"    {term}: IDF={term_idf[term]:.3f} (df={len(term_to_chunks[term])})", flush=True)
+    for term in sorted(term_idf, key=term_idf.get)[:3]:
+        print(f"    {term}: IDF={term_idf[term]:.3f} (df={len(term_to_chunks[term])})", flush=True)
+
+    # 枚举跨书边（IDF 加权）
+    edge_weight: dict[tuple, float] = defaultdict(float)
+    edge_terms:  dict[tuple, list]  = defaultdict(list)
+
+    for term, cids_list in term_to_chunks.items():
+        idf = term_idf[term]
         # 只处理当前术语涉及的 chunk 对
-        for i in range(len(cids)):
-            for j in range(i + 1, len(cids)):
-                a, b = cids[i], cids[j]
+        for i in range(len(cids_list)):
+            for j in range(i + 1, len(cids_list)):
+                a, b = cids_list[i], cids_list[j]
                 if chunk_index[a]["book"] == chunk_index[b]["book"]:
                     continue  # 同书不建边
                 key = (min(a, b), max(a, b))
-                edge_counter[key] += 1
+                edge_weight[key] += idf
                 edge_terms[key].append(term)
 
     # 写入满足 min_weight 的边
     edges_added = 0
-    for (a, b), weight in edge_counter.items():
-        if weight >= min_weight:
-            G.add_edge(a, b, weight=weight, shared_terms=edge_terms[(a, b)])
+    for (a, b), w in edge_weight.items():
+        if w >= min_weight:
+            G.add_edge(a, b, weight=round(w, 4), shared_terms=edge_terms[(a, b)])
             edges_added += 1
 
-    print(f"  Nodes: {G.number_of_nodes()}  Edges: {edges_added}  "
-          f"(min_weight={min_weight})", flush=True)
+    print(f"  Edges before pruning: {edges_added}  (min_weight={min_weight})", flush=True)
+
+    # ── 度限制剪枝：每个节点只保留权重最高的 top-K 条边 ─────────────────────
+    # 策略：保留边 (A,B) 如果 A 或 B 其中任一方将其排在自己的 top-K 内
+    if max_degree > 0:
+        edges_before = G.number_of_edges()
+        edges_to_keep = set()
+        for node in G.nodes():
+            neighbors = list(G[node].items())  # [(nbr, edge_data), ...]
+            neighbors.sort(key=lambda x: x[1].get("weight", 0), reverse=True)
+            for nbr, _ in neighbors[:max_degree]:
+                edges_to_keep.add((min(node, nbr), max(node, nbr)))
+        edges_to_remove = []
+        for u, v in G.edges():
+            if (min(u, v), max(u, v)) not in edges_to_keep:
+                edges_to_remove.append((u, v))
+        G.remove_edges_from(edges_to_remove)
+        print(f"  Degree pruning (max_degree={max_degree}): "
+              f"{edges_before} → {G.number_of_edges()} edges "
+              f"(removed {len(edges_to_remove)})", flush=True)
+
+    avg_degree = (sum(dict(G.degree()).values()) / G.number_of_nodes()
+                  if G.number_of_nodes() else 0)
+    print(f"  Nodes: {G.number_of_nodes()}  Edges: {G.number_of_edges()}  "
+          f"avg_degree: {avg_degree:.1f}", flush=True)
 
     return G, chunk_index
 
@@ -212,6 +251,8 @@ def main():
                         help="Min shared bridge terms to create an edge (default: 1)")
     parser.add_argument("--min-chunk-len", type=int, default=50,
                         help="Minimum chunk character length to include (default: 50)")
+    parser.add_argument("--max-degree", type=int, default=0,
+                        help="Max edges per node (0=no limit). Keeps top-K by weight. (default: 0)")
     parser.add_argument("--output-dir", default="./data",
                         help="Directory to save graph files (default: ./data)")
     args = parser.parse_args()
@@ -226,6 +267,7 @@ def main():
     print(f"  embedding:      {args.embedding_model}", flush=True)
     print(f"  min_weight:     {args.min_weight}", flush=True)
     print(f"  min_chunk_len:  {args.min_chunk_len}", flush=True)
+    print(f"  max_degree:     {args.max_degree}", flush=True)
     print(f"  output_dir:     {args.output_dir}", flush=True)
     print(flush=True)
 
@@ -234,6 +276,7 @@ def main():
         embedding_model= args.embedding_model,
         min_weight     = args.min_weight,
         min_chunk_len  = args.min_chunk_len,
+        max_degree     = args.max_degree,
     )
 
     save_outputs(G, chunk_index, Path(args.output_dir))
