@@ -1,0 +1,26 @@
+# Example GitHub Actions workflow to automatically sync commits from GitHub to Hugging Face Spaces.
+# To activate:
+# 1. Rename this file to .github/workflows/sync-huggingface.yml
+# 2. Add secret HF_TOKEN in GitHub repository settings (Settings -> Secrets and variables -> Actions)
+# 3. Replace YOUR_HF_USERNAME and YOUR_SPACE_NAME with your Hugging Face space path.
+
+name: Sync to Hugging Face Hub
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push --force https://hf:$HF_TOKEN@huggingface.co/spaces/YOUR_HF_USERNAME/YOUR_SPACE_NAME main

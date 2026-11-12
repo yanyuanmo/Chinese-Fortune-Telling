@@ -1,10 +1,9 @@
-# Large data directories not needed in API image
+# Large data directories not needed in production images
 chroma_db_bge/
 chroma_db_prop/
 benchmarks/
 scripts/
 data/
-app/
 terraform/
 fortune_books/
 

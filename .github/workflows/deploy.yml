@@ -1,8 +1,8 @@
-name: Deploy to AWS (ECR + ECS via Terraform)
+name: Deploy to AWS (ECR + ECS via Terraform) [Archived]
 
+# Disabled on push to main to prevent unexpected AWS cloud charges.
+# To deploy to AWS, use workflow_dispatch or switch to the 'infra/aws-ecs' branch.
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
 
 env:
