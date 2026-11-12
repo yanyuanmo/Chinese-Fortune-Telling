@@ -36,6 +36,11 @@ jobs:
           echo "API_REPO=${{ env.PROJECT_NAME }}-api" >> $GITHUB_OUTPUT
           echo "APP_REPO=${{ env.PROJECT_NAME }}-app" >> $GITHUB_OUTPUT
 
+      - name: Ensure ECR repositories exist
+        run: |
+          aws ecr create-repository --repository-name ${{ env.PROJECT_NAME }}-api --region ${{ env.AWS_REGION }} || true
+          aws ecr create-repository --repository-name ${{ env.PROJECT_NAME }}-app --region ${{ env.AWS_REGION }} || true
+
       - name: Build and push API image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
