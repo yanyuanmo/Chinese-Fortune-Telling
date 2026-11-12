@@ -18,15 +18,31 @@ API_URL = os.getenv("API_URL", "")
 def _sync_secrets_to_env():
     """Sync Streamlit secrets to environment variables if available."""
     try:
-        if hasattr(st, "secrets") and "MOONSHOT_API_KEY" in st.secrets:
-            if not os.environ.get("MOONSHOT_API_KEY"):
-                os.environ["MOONSHOT_API_KEY"] = st.secrets["MOONSHOT_API_KEY"]
+        if hasattr(st, "secrets"):
+            for k in ["MOONSHOT_API_KEY", "moonshot_api_key", "Moonshot_Api_Key", "KIMI_API_KEY"]:
+                if k in st.secrets:
+                    val = str(st.secrets[k]).strip().strip('"').strip("'")
+                    if val:
+                        os.environ["MOONSHOT_API_KEY"] = val
+                        break
     except Exception:
         pass
 
 def _get_local_fortune_response(question, session_id, model, query_type="general", birth_date=None, birth_gender=None, zodiac_sign=None):
     """Direct in-process execution for serverless/0-cost platforms like Hugging Face Spaces & Streamlit Cloud."""
     _sync_secrets_to_env()
+    
+    api_key = os.environ.get("MOONSHOT_API_KEY", "").strip()
+    if not api_key:
+        st.error(
+            "⚠️ 未检测到有效配置的 `MOONSHOT_API_KEY`。\n\n"
+            "请在 Streamlit 页面右下角点击 **Manage app** ➡️ **⋮** ➡️ **Settings** ➡️ **Secrets**，填入：\n"
+            "```toml\n"
+            "MOONSHOT_API_KEY = \"你的Kimi密钥\"\n"
+            "```\n"
+            "保存后刷新页面即可。"
+        )
+        return None
     
     # Ensure api and root directories are in sys.path
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -71,7 +87,17 @@ def _get_local_fortune_response(question, session_id, model, query_type="general
             "query_type": query_type
         }
     except Exception as e:
-        st.error(f"Error during divination reading: {str(e)}")
+        err_msg = str(e)
+        if "401" in err_msg or "Invalid Authentication" in err_msg:
+            st.error(
+                "⚠️ **Kimi 认证失败 (Error 401 - Invalid Authentication)**\n\n"
+                "可能的原因：\n"
+                "1. 在 Streamlit 的 **Secrets** 中配置的 `MOONSHOT_API_KEY` 不正确、已过期或复制时包含了多余空格。\n"
+                "2. 你的 Kimi (Moonshot AI) 开发者账号额度用尽或已欠费。\n\n"
+                "👉 请前往 [Moonshot 开放平台](https://platform.moonshot.cn/console/api-keys) 检查密钥状态或重新生成一个新的 Key。"
+            )
+        else:
+            st.error(f"Error during divination reading: {err_msg}")
         return None
 
 def get_fortune_response(question, session_id, model, query_type="general", birth_date=None, birth_gender=None, zodiac_sign=None):
