@@ -96,10 +96,23 @@ def get_fortune_chain(query_type: str = "general", model: str = "moonshot-v1-8k"
     Returns:
         A retrieval chain (history-aware)
     """
+    api_key = (
+        os.environ.get("MOONSHOT_API_KEY")
+        or os.environ.get("KIMI_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or ""
+    ).strip().strip('"').strip("'")
+
+    moonshot_base_url = "https://api.moonshot.cn/v1"
+    os.environ["OPENAI_API_BASE"] = moonshot_base_url
+    os.environ["OPENAI_BASE_URL"] = moonshot_base_url
+
     llm = ChatOpenAI(
         model=model,
-        openai_api_key=os.environ.get("MOONSHOT_API_KEY", ""),
-        openai_api_base="https://api.moonshot.cn/v1",
+        api_key=api_key,
+        base_url=moonshot_base_url,
+        openai_api_key=api_key,
+        openai_api_base=moonshot_base_url,
         temperature=0.7,
         max_retries=2,
     )

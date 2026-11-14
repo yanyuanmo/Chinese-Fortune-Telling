@@ -19,20 +19,31 @@ def _sync_secrets_to_env():
     """Sync Streamlit secrets to environment variables if available."""
     try:
         if hasattr(st, "secrets"):
-            for k in ["MOONSHOT_API_KEY", "moonshot_api_key", "Moonshot_Api_Key", "KIMI_API_KEY"]:
+            for k in ["MOONSHOT_API_KEY", "moonshot_api_key", "Moonshot_Api_Key", "KIMI_API_KEY", "kimi_api_key", "OPENAI_API_KEY"]:
                 if k in st.secrets:
                     val = str(st.secrets[k]).strip().strip('"').strip("'")
                     if val:
                         os.environ["MOONSHOT_API_KEY"] = val
+                        os.environ["KIMI_API_KEY"] = val
+                        os.environ["OPENAI_API_KEY"] = val
                         break
     except Exception:
         pass
+    
+    # Always set default base_url for Moonshot
+    os.environ["OPENAI_API_BASE"] = "https://api.moonshot.cn/v1"
+    os.environ["OPENAI_BASE_URL"] = "https://api.moonshot.cn/v1"
 
 def _get_local_fortune_response(question, session_id, model, query_type="general", birth_date=None, birth_gender=None, zodiac_sign=None):
     """Direct in-process execution for serverless/0-cost platforms like Hugging Face Spaces & Streamlit Cloud."""
     _sync_secrets_to_env()
     
-    api_key = os.environ.get("MOONSHOT_API_KEY", "").strip()
+    api_key = (
+        os.environ.get("MOONSHOT_API_KEY") 
+        or os.environ.get("KIMI_API_KEY") 
+        or os.environ.get("OPENAI_API_KEY") 
+        or ""
+    ).strip()
     if not api_key:
         st.error(
             "⚠️ 未检测到有效配置的 `MOONSHOT_API_KEY`。\n\n"
