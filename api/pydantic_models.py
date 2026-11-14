@@ -5,7 +5,7 @@ from datetime import datetime
 class QueryInput(BaseModel):
     question: str
     session_id: str = Field(default=None)
-    model: str = Field(default="moonshot-v1-8k")
+    model: str = Field(default="kimi-k3.1-pro")
 
 class QueryResponse(BaseModel):
     answer: str

@@ -85,7 +85,7 @@ def _build_hyde_rerank_retriever(llm, hyde_k: int = 15, top_n: int = 7):
     return RunnableLambda(_retrieve)
 
 
-def get_fortune_chain(query_type: str = "general", model: str = "moonshot-v1-8k"):
+def get_fortune_chain(query_type: str = "general", model: str = "kimi-k3.1-pro"):
     """
     Creates a HyDE + BGE-Rerank RAG chain for fortune telling.
 
@@ -96,6 +96,9 @@ def get_fortune_chain(query_type: str = "general", model: str = "moonshot-v1-8k"
     Returns:
         A retrieval chain (history-aware)
     """
+    # Automatically map deprecated legacy moonshot-v1 models to current flagship model
+    if not model or model.startswith("moonshot-v1"):
+        model = "kimi-k3.1-pro"
     api_key = (
         os.environ.get("MOONSHOT_API_KEY")
         or os.environ.get("KIMI_API_KEY")

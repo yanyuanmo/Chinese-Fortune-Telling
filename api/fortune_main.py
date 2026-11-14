@@ -55,7 +55,7 @@ class QueryType(str, Enum):
 class FortuneInput(BaseModel):
     question: str
     session_id: Optional[str] = Field(default=None)
-    model: str = Field(default="moonshot-v1-8k")
+    model: str = Field(default="kimi-k3.1-pro")
     query_type: QueryType = Field(default=QueryType.GENERAL)
     birth_date: Optional[str] = Field(default=None)  # Format: YYYY-MM-DD HH:MM
     birth_gender: Optional[str] = Field(default=None)  # "male" or "female"

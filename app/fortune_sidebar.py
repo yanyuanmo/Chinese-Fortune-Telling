@@ -13,8 +13,12 @@ def display_fortune_sidebar():
     st.sidebar.markdown("# 🔮 果赖算命阁 🔮")
     st.sidebar.markdown("### Master Guo Lai's Fortune Hall")
     
-    # Model Selection
-    model_options = ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "kimi-k3.1-pro"]
+    # Model Selection (Current active Moonshot Kimi models)
+    model_options = [
+        "kimi-k3.1-pro",
+        "kimi-k3.1-pro-highspeed",
+        "kimi-k3"
+    ]
     st.sidebar.selectbox(
         "Select Oracle Engine", 
         options=model_options, 
