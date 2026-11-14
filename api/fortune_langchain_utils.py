@@ -110,13 +110,14 @@ def get_fortune_chain(query_type: str = "general", model: str = "kimi-k3.1-pro")
     os.environ["OPENAI_API_BASE"] = moonshot_base_url
     os.environ["OPENAI_BASE_URL"] = moonshot_base_url
 
+    # Kimi k3.1 series strictly requires temperature=1
     llm = ChatOpenAI(
         model=model,
         api_key=api_key,
         base_url=moonshot_base_url,
         openai_api_key=api_key,
         openai_api_base=moonshot_base_url,
-        temperature=0.7,
+        temperature=1,
         max_retries=2,
     )
 
