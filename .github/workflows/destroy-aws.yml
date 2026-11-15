@@ -1,0 +1,124 @@
+name: Destroy AWS Infrastructure (Stop Billing)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "输入 destroy 确认销毁 AWS 线上计费资源 (ALB / ECS / VPC / ECR)"
+        required: true
+        default: "destroy"
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: fortune-teller
+
+jobs:
+  destroy:
+    if: ${{ inputs.confirm == 'destroy' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Detect Terraform S3 State Bucket
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          CANDIDATE_1="fortune-teller-terraform-state-${ACCOUNT_ID}"
+          CANDIDATE_2="fortune-teller-terraform-state"
+
+          STATE_BUCKET=""
+          if aws s3api head-bucket --bucket "${CANDIDATE_1}" 2>/dev/null; then
+            STATE_BUCKET="${CANDIDATE_1}"
+          elif aws s3api head-bucket --bucket "${CANDIDATE_2}" 2>/dev/null; then
+            STATE_BUCKET="${CANDIDATE_2}"
+          fi
+
+          echo "STATE_BUCKET=${STATE_BUCKET}" >> $GITHUB_ENV
+          echo "Detected state bucket: ${STATE_BUCKET:-<none>}"
+
+      - name: Pre-drain ECS Fargate tasks & guard ECR import blocks
+        run: |
+          CLUSTER="${PROJECT_NAME}-cluster"
+          for SVC in "${PROJECT_NAME}-api-service" "${PROJECT_NAME}-app-service"; do
+            aws ecs update-service \
+              --cluster "$CLUSTER" \
+              --service "$SVC" \
+              --desired-count 0 \
+              --region "$AWS_REGION" >/dev/null 2>&1 || true
+          done
+
+          TASKS=$(aws ecs list-tasks --cluster "$CLUSTER" --desired-status RUNNING --region "$AWS_REGION" --query 'taskArns[]' --output text 2>/dev/null || true)
+          if [ -n "$TASKS" ] && [ "$TASKS" != "None" ]; then
+            for TASK in $TASKS; do
+              aws ecs stop-task --cluster "$CLUSTER" --task "$TASK" --reason "Terraform destroy" --region "$AWS_REGION" >/dev/null 2>&1 || true
+            done
+            echo "Waiting 25s for Fargate ENIs and Cloud Map instances to deregister..."
+            sleep 25
+          fi
+
+          # Remove declarative import blocks if ECR repos were already deleted (makes re-runs idempotent)
+          aws ecr describe-repositories --repository-names "${PROJECT_NAME}-api" --region "${AWS_REGION}" >/dev/null 2>&1 || \
+            python3 -c "import pathlib, re; p=pathlib.Path('terraform/environments/production/main.tf'); p.write_text(re.sub(r'import\s*\{\s*to\s*=\s*module\.ecr\.aws_ecr_repository\.fortune_api\s*id\s*=[^\n]*\n\s*\}\s*', '', p.read_text()))"
+          aws ecr describe-repositories --repository-names "${PROJECT_NAME}-app" --region "${AWS_REGION}" >/dev/null 2>&1 || \
+            python3 -c "import pathlib, re; p=pathlib.Path('terraform/environments/production/main.tf'); p.write_text(re.sub(r'import\s*\{\s*to\s*=\s*module\.ecr\.aws_ecr_repository\.fortune_app\s*id\s*=[^\n]*\n\s*\}\s*', '', p.read_text()))"
+
+      - name: Setup Terraform
+        if: env.STATE_BUCKET != ''
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init & Destroy
+        if: env.STATE_BUCKET != ''
+        working-directory: terraform/environments/production
+        run: |
+          terraform init -input=false -backend-config="bucket=${STATE_BUCKET}"
+          echo "=== Current Terraform State Resources ==="
+          terraform state list || true
+
+          # Sync force_delete=true onto ECR state before full destroy so non-empty repos delete cleanly
+          terraform apply -input=false -auto-approve -target=module.ecr -var "moonshot_api_key=placeholder" || true
+
+          terraform destroy -input=false -auto-approve -var "moonshot_api_key=placeholder" || {
+            echo "Retrying terraform destroy after 25s for AWS ENI/CloudMap propagation..."
+            sleep 25
+            terraform destroy -input=false -auto-approve -var "moonshot_api_key=placeholder"
+          }
+
+      - name: Fallback Cleanup (ECR & CloudWatch Logs)
+        run: |
+          aws ecr delete-repository --repository-name "${PROJECT_NAME}-api" --force --region "${AWS_REGION}" >/dev/null 2>&1 || true
+          aws ecr delete-repository --repository-name "${PROJECT_NAME}-app" --force --region "${AWS_REGION}" >/dev/null 2>&1 || true
+          aws logs delete-log-group --log-group-name "/ecs/${PROJECT_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1 || true
+
+      - name: Audit Remaining AWS Resources (Billing Check)
+        run: |
+          ALBS=$(aws elbv2 describe-load-balancers --region "$AWS_REGION" --query 'LoadBalancers[].LoadBalancerName' --output text 2>/dev/null || echo "error")
+          ALL_CLUSTERS=$(aws ecs list-clusters --region "$AWS_REGION" --query 'clusterArns[]' --output text 2>/dev/null || true)
+          if [ -n "$ALL_CLUSTERS" ]; then
+            CLUSTERS=$(aws ecs describe-clusters --clusters $ALL_CLUSTERS --region "$AWS_REGION" --query 'clusters[?status==`ACTIVE`].clusterName' --output text 2>/dev/null || true)
+          else
+            CLUSTERS=""
+          fi
+          NATS=$(aws ec2 describe-nat-gateways --region "$AWS_REGION" --filter Name=state,Values=pending,available --query 'NatGateways[].NatGatewayId' --output text 2>/dev/null || echo "error")
+          EIPS=$(aws ec2 describe-addresses --region "$AWS_REGION" --query 'Addresses[].PublicIp' --output text 2>/dev/null || echo "error")
+          ECRS=$(aws ecr describe-repositories --region "$AWS_REGION" --query 'repositories[].repositoryName' --output text 2>/dev/null || echo "error")
+
+          echo "### ✅ AWS 销毁与计费核查报告 (${AWS_REGION})" >> $GITHUB_STEP_SUMMARY
+          echo "| 计费项 | 剩余资源 (为空表示已清零) |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| ALB 负载均衡器 | \`${ALBS:-无 (0)}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS 容器集群 | \`${CLUSTERS:-无 (0)}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| NAT 网关 | \`${NATS:-无 (0)}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 弹性公网 IP (EIP) | \`${EIPS:-无 (0)}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECR 镜像仓库 | \`${ECRS:-无 (0)}\` |" >> $GITHUB_STEP_SUMMARY
